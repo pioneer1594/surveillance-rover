@@ -1,23 +1,26 @@
 #include "esp_camera.h"
+#include <Arduino.h>
 #include <WiFi.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <ESP32Servo.h>
 
-// Compiler fix to prevent HTTP macro overlaps from WiFi.h
-#ifdef HTTP_GET
-#undef HTTP_GET
-#endif
-#ifdef HTTP_POST
-#undef HTTP_POST
-#endif
+// --- PIN DEFINITIONS ---
+#define MOTOR_IN1 13  // Right Motor Forward
+#define MOTOR_IN2 14  // Right Motor Backward
+#define MOTOR_IN3 15  // Left Motor Forward
+#define MOTOR_IN4 2   // Left Motor Backward
 
-#include "esp_http_server.h"
-#include "soc/soc.h"             // Brownout Detector control
-#include "soc/rtc_cntl_reg.h"    // Brownout Register control
+#define LIGHT_PIN 4   // Flash LED Pin
+#define SERVO_PIN 12  // Servo Pin for Camera Tilt
 
-// 🚨 Hotspot Settings: ဖုန်းကနေ ချိတ်ဆက်ရမယ့် Wi-Fi နာမည်နှင့် စကားဝှက်
-const char* ap_ssid = "shein_cam";
-const char* ap_password = "15092004"; // အနည်းဆုံး ဂဏန်း ၈ လုံး ရှိရပါမည်
+#define STOP 0
+#define UP 1
+#define DOWN 2
+#define LEFT 3
+#define RIGHT 4
 
-// Camera Pins mapped directly (AI-Thinker Board Layout)
+// Camera Pin Mapping (AI-Thinker)
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM      0
@@ -35,172 +38,414 @@ const char* ap_password = "15092004"; // အနည်းဆုံး ဂဏန�
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-httpd_handle_t camera_httpd = NULL;
+//wifi and password for esp32
+const char* ssid     = "pio";
+const char* password = "15092004";
 
-const char INDEX_HTML[] = R"rawliteral(
+AsyncWebServer server(80);
+AsyncWebSocket wsCamera("/Camera");
+AsyncWebSocket wsCarInput("/CarInput");
+uint32_t cameraClientId = 0;
+
+Servo cameraServo;
+
+// Safety Watchdog Variables
+unsigned long lastCmdTime = 0;
+const unsigned long CMD_TIMEOUT = 600; // after 0.6 sec stop
+
+// ================= HTML, CSS, JS to store in program =================
+const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Pioneer Hotspot Camera Monitor</title>
-  <style>
-    body { 
-      font-family: Arial, sans-serif; 
-      text-align: center; 
-      background-color: #0f172a; 
-      color: #f1f5f9; 
-      margin: 0; 
-      padding: 20px; 
-    }
-    h2 { color: #38bdf8; margin-bottom: 5px; }
-    .status-badge {
-      display: inline-block;
-      padding: 5px 12px;
-      background-color: #38bdf8;
-      color: #0f172a;
-      border-radius: 15px;
-      font-size: 12px;
-      font-weight: bold;
-      margin-bottom: 20px;
-    }
-    .stream-container { 
-      max-width: 480px; 
-      margin: auto; 
-      border: 4px solid #38bdf8; 
-      border-radius: 12px; 
-      overflow: hidden; 
-      background-color: #000; 
-      box-shadow: 0 8px 24px rgba(0,0,0,0.5); 
-    }
-    img { width: 100%; height: auto; display: block; }
-    .note { margin-top: 15px; font-size: 13px; color: #94a3b8; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Smart Rover - Command Center</title>
+    <style>
+        /* ================= Theme & Base Styling (Tech Blue) ================= */
+        :root {
+            --primary-color: #3498db; 
+            --danger-color: #e74c3c;  
+            --bg-color: #121212;      
+            --panel-bg: #1e1e1e;      
+            --border-color: #2c3e50;  
+        }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: #ffffff;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            width: 100%;
+            max-width: 850px;
+            background: var(--panel-bg);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--border-color);
+        }
+        h2 { font-size: 26px; letter-spacing: 1px; margin-bottom: 10px; color: var(--primary-color); }
+        p { color: #a0aabf; font-size: 14px; margin-bottom: 20px; }
+        
+        /* ================= Login Inputs & Buttons ================= */
+        input[type="text"], input[type="password"] {
+            width: 100%; max-width: 320px; padding: 14px 20px; margin: 10px 0;
+            background: #2a2a2a; border: 1px solid #444; border-radius: 6px;
+            color: #fff; font-size: 16px; outline: none; transition: 0.3s;
+        }
+        input[readonly] {
+            background: #1a1a1a; color: #888; cursor: not-allowed; border-color: #333;
+        }
+        input:focus:not([readonly]) { border-color: var(--primary-color); background: #333; }
+        .btn {
+            background: var(--primary-color); color: #ffffff; border: none;
+            padding: 12px 30px; font-size: 16px; font-weight: bold; border-radius: 6px;
+            cursor: pointer; text-transform: uppercase; letter-spacing: 1px; margin-top: 15px;
+        }
+        .btn:hover { background: #2980b9; }
+
+        /* ================= Dashboard Elements ================= */
+        #video-container {
+            margin: 15px auto; width: 100%; max-width: 500px; height: auto; min-height: 280px;
+            background-color: #000; border-radius: 8px; overflow: hidden; border: 1px solid var(--primary-color);
+            display: flex; align-items: center; justify-content: center; position: relative;
+        }
+        #camera-status { color: var(--danger-color); font-weight: bold; letter-spacing: 1px; }
+        #video-stream { width: 100%; height: auto; display: none; }
+        
+        /* ================= Servo & Light Controls ================= */
+        .slider-group { margin: 15px auto; max-width: 300px; text-align: left; }
+        .slider-group label { display: block; font-size: 14px; margin-bottom: 5px; color: #a0aabf; }
+        input[type=range] { width: 100%; cursor: pointer; }
+        .toggle-btn {
+            background: var(--danger-color); color: white; border: none; padding: 10px 20px;
+            font-size: 14px; font-weight: bold; border-radius: 6px; cursor: pointer; margin-bottom: 15px;
+        }
+
+        /* ================= Gamepad D-Pad UI ================= */
+        .control-panel {
+            display: grid; grid-template-columns: repeat(3, 70px); grid-template-rows: repeat(3, 70px);
+            gap: 12px; justify-content: center; align-items: center; margin: 10px auto;
+        }
+        .d-btn {
+            width: 100%; height: 100%; background: #2c3e50; border: 1px solid #34495e;
+            border-radius: 8px; color: #ecf0f1; font-size: 18px; font-weight: bold; cursor: pointer;
+            display: flex; justify-content: center; align-items: center; user-select: none; -webkit-user-select: none;
+        }
+        .d-btn:active, .d-btn.active { background: var(--primary-color); color: #ffffff; transform: scale(0.95); }
+        .btn-stop { background: #c0392b; border-color: #e74c3c; font-size: 14px; }
+        .btn-stop:active, .btn-stop.active { background: #a1281b; }
+        
+        .logout-btn { background: transparent; border: 1px solid #7f8c8d; color: #bdc3c7; font-size: 12px; padding: 8px 16px; margin-top: 20px;}
+        .error { color: var(--danger-color); font-size: 14px; margin-top: 15px; }
+    </style>
 </head>
 <body>
-  <h2>Pioneer Hotspot Monitor</h2>
-  <span class="status-badge">DIRECT AP MODE</span>
-  <div class="stream-container">
-    <img src="/stream" id="video">
-  </div>
-  <p class="note">Direct Wifi connection - Secure DRAM Only Stream</p>
+
+    <div class="container">
+        <!-- LOGIN SECTION -->
+        <div id="loginSection">
+            <h2>SYSTEM LOGIN</h2>
+            <p>Smart Rover Secure Authentication</p>
+            <form id="loginForm">
+                <input type="text" id="username" value="admin" readonly required><br>
+                <input type="password" id="password" placeholder="Enter Password" required><br>
+                <button type="submit" class="btn">CONNECT</button>
+            </form>
+            <div id="loginMessage" class="error"></div>
+        </div>
+
+        <!-- DASHBOARD SECTION -->
+        <div id="dashboardSection" style="display: none;">
+            <h2>SMART ROVER HUD</h2>
+            
+            <!-- Video Stream -->
+            <div id="video-container">
+                <span id="camera-status">CONNECTING CAMERA...</span>
+                <img id="video-stream" src="" alt="Live Stream" />
+            </div>
+
+            <!-- Servo & Light Controls -->
+            <div class="slider-group">
+                <label>Camera Tilt (Servo): <span id="servoVal">90</span>°</label>
+                <input type="range" min="0" max="180" value="90" oninput="updateSlider('Servo', this.value, 'servoVal')">
+            </div>
+            <button class="toggle-btn" id="lightBtn" onclick="toggleLight()">Flash Light: OFF</button>
+
+            <!-- D-Pad Controls (Desktop & Mobile Touch) -->
+            <div class="control-panel">
+                <div></div>
+                <button class="d-btn" onmousedown="sendCommand('forward')" onmouseup="sendCommand('stop')" ontouchstart="sendCommand('forward')" ontouchend="sendCommand('stop')">▲</button>
+                <div></div>
+                <button class="d-btn" onmousedown="sendCommand('left')" onmouseup="sendCommand('stop')" ontouchstart="sendCommand('left')" ontouchend="sendCommand('stop')">◄</button>
+                <button class="d-btn btn-stop" onmousedown="sendCommand('stop')" ontouchstart="sendCommand('stop')">■</button>
+                <button class="d-btn" onmousedown="sendCommand('right')" onmouseup="sendCommand('stop')" ontouchstart="sendCommand('right')" ontouchend="sendCommand('stop')">►</button>
+                <div></div>
+                <button class="d-btn" onmousedown="sendCommand('backward')" onmouseup="sendCommand('stop')" ontouchstart="sendCommand('backward')" ontouchend="sendCommand('stop')">▼</button>
+                <div></div>
+            </div>
+            
+            <button class="btn logout-btn" onclick="logout()">DISCONNECT</button>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script>
+        const loginSection = document.getElementById('loginSection');
+        const dashboardSection = document.getElementById('dashboardSection');
+        const loginForm = document.getElementById('loginForm');
+        const loginMessage = document.getElementById('loginMessage');
+        const videoStream = document.getElementById('video-stream');
+        const cameraStatus = document.getElementById('camera-status');
+
+        var wsCamUrl = 'ws://' + window.location.hostname + '/Camera';
+        var wsCarUrl = 'ws://' + window.location.hostname + '/CarInput';
+        var wsCam, wsCar;
+        var lightState = 0;
+
+        // Login Submit Verification
+        loginForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const user = document.getElementById('username').value;
+            const pass = document.getElementById('password').value;
+
+            // Password check for '1234' with default 'admin' user
+            if(pass === '1234') {
+                loginSuccess();
+            } else {
+                loginMessage.innerText = "ACCESS DENIED. Invalid Password.";
+                document.getElementById('password').value = "";
+            }
+        });
+
+        function loginSuccess() {
+            loginSection.style.display = 'none';
+            dashboardSection.style.display = 'block';
+            loginMessage.innerText = "";
+            initWebSockets();
+        }
+
+        function logout() {
+            dashboardSection.style.display = 'none';
+            loginSection.style.display = 'block';
+            document.getElementById('password').value = ""; 
+            if(wsCam) wsCam.close();
+            if(wsCar) wsCar.close();
+            cameraStatus.style.display = 'inline';
+            videoStream.style.display = 'none';
+        }
+
+        function initWebSockets() {
+            wsCam = new WebSocket(wsCamUrl);
+            wsCar = new WebSocket(wsCarUrl);
+
+            wsCam.binaryType = 'arraybuffer';
+            wsCam.onmessage = function(event) {
+                var blob = new Blob([event.data], {type: 'image/jpeg'});
+                videoStream.src = URL.createObjectURL(blob);
+                videoStream.style.display = 'block';
+                cameraStatus.style.display = 'none';
+            };
+        }
+
+        function sendCmd(key, value) {
+            if (wsCar && wsCar.readyState === WebSocket.OPEN) {
+                wsCar.send(key + ',' + value);
+            }
+        }
+
+        function sendCommand(action) {
+            if (action === 'forward') sendCmd('MoveCar', 1);
+            else if (action === 'backward') sendCmd('MoveCar', 2);
+            else if (action === 'left') sendCmd('MoveCar', 3);
+            else if (action === 'right') sendCmd('MoveCar', 4);
+            else if (action === 'stop') sendCmd('MoveCar', 0);
+        }
+
+        function updateSlider(key, value, labelId) {
+            document.getElementById(labelId).innerText = value;
+            sendCmd(key, value);
+        }
+
+        function toggleLight() {
+            lightState = lightState === 0 ? 1 : 0;
+            var btn = document.getElementById('lightBtn');
+            if (lightState === 1) {
+                btn.innerText = "Flash Light: ON";
+                btn.style.background = "#2a9d8f";
+            } else {
+                btn.innerText = "Flash Light: OFF";
+                btn.style.background = "#e74c3c";
+            }
+            sendCmd('Light', lightState);
+        }
+
+        // ================= Keyboard Control (W,A,S,D) =================
+        window.addEventListener('keydown', (event) => {
+            if (event.repeat || dashboardSection.style.display === 'none') return; 
+            const key = event.key.toLowerCase();
+            if (key === 'w') sendCommand('forward');
+            if (key === 'a') sendCommand('left');
+            if (key === 's') sendCommand('backward');
+            if (key === 'd') sendCommand('right');
+        });
+
+        window.addEventListener('keyup', (event) => {
+            if (dashboardSection.style.display === 'none') return;
+            const key = event.key.toLowerCase();
+            if (['w', 'a', 's', 'd'].includes(key)) {
+                sendCommand('stop');
+            }
+        });
+    </script>
 </body>
 </html>
 )rawliteral";
 
-static esp_err_t index_handler(httpd_req_t *req){
-  httpd_resp_set_type(req, "text/html; charset=utf-8");
-  return httpd_resp_send(req, (const char *)INDEX_HTML, strlen(INDEX_HTML));
+// ================= MOTOR AND HARDWARE CONTROL =================
+
+void rotateMotors(int in1, int in2, int in3, int in4) {
+  digitalWrite(MOTOR_IN1, in1);
+  digitalWrite(MOTOR_IN2, in2);
+  digitalWrite(MOTOR_IN3, in3);
+  digitalWrite(MOTOR_IN4, in4);
 }
 
-static esp_err_t stream_handler(httpd_req_t *req){
-  camera_fb_t * fb = NULL;
-  esp_err_t res = ESP_OK;
-  size_t _jpg_buf_len = 0;
-  uint8_t * _jpg_buf = NULL;
-  char part_buf[64];
-  
-  res = httpd_resp_set_type(req, "multipart/x-mixed-replace;boundary=123456789000000000000987654321");
-  if(res != ESP_OK) return res;
-
-  while(true){
-    fb = esp_camera_fb_get();
-    if (!fb) {
-      Serial.println("Camera capture failed");
-      res = ESP_FAIL;
-      break;
-    }
-    
-    _jpg_buf_len = fb->len;
-    _jpg_buf = fb->buf;
-
-    size_t hlen = snprintf(part_buf, 64, "\r\n--123456789000000000000987654321\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n", _jpg_buf_len);
-    res = httpd_resp_send_chunk(req, part_buf, hlen);
-    if(res == ESP_OK){
-      res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
-    }
-    esp_camera_fb_return(fb);
-    if(res != ESP_OK) break;
-    
-    taskYIELD(); 
-  }
-  return res;
-}
-
-void startCameraServer(){
-  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.server_port = 80;
-
-  if (httpd_start(&camera_httpd, &config) == ESP_OK) {
-    httpd_uri_t index_uri;
-    index_uri.uri       = "/";
-    index_uri.method    = HTTP_GET;
-    index_uri.handler   = index_handler;
-    index_uri.user_ctx  = NULL;
-
-    httpd_uri_t stream_uri;
-    stream_uri.uri      = "/stream";
-    stream_uri.method   = HTTP_GET;
-    stream_uri.handler  = stream_handler;
-    stream_uri.user_ctx = NULL;
-    
-    httpd_register_uri_handler(camera_httpd, &index_uri);
-    httpd_register_uri_handler(camera_httpd, &stream_uri);
-    Serial.println("Camera Web Server Started successfully!");
+void moveCar(int inputValue) {
+  switch(inputValue) {
+    case UP:    rotateMotors(HIGH, LOW, LOW, HIGH); break;
+    case DOWN:  rotateMotors(LOW, HIGH, HIGH, LOW); break;
+    case RIGHT: rotateMotors(HIGH, LOW, HIGH, LOW); break;
+    case LEFT:  rotateMotors(LOW, HIGH, LOW, HIGH); break;
+    case STOP:
+    default:    rotateMotors(LOW, LOW, LOW, LOW);   break;
   }
 }
 
-void setup() {
-  // *** [CRITICAL] Disable Brownout Detector ***
-  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); 
-  
-  Serial.begin(115200);
-  delay(1000);
-  Serial.println("\n--- Starting AP Hotspot DRAM-Only Test Boot ---");
+void onCarInputWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {                       
+  if (type == WS_EVT_DISCONNECT) {
+    moveCar(STOP);
+    digitalWrite(LIGHT_PIN, LOW);  
+  } else if (type == WS_EVT_DATA) {
+    AwsFrameInfo *info = (AwsFrameInfo*)arg;
+    if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+      data[len] = '\0';
+      char* key = strtok((char*)data, ",");
+      char* valueStr = strtok(NULL, ",");
 
+      if (key && valueStr) {
+        int valueInt = atoi(valueStr);
+        lastCmdTime = millis(); // Refresh Safety Timer
+
+        if (strcmp(key, "MoveCar") == 0) {
+          moveCar(valueInt);         
+        } else if (strcmp(key, "Light") == 0) {
+          digitalWrite(LIGHT_PIN, valueInt > 0 ? HIGH : LOW);          
+        } else if (strcmp(key, "Servo") == 0) {
+          cameraServo.write(valueInt); 
+        }      
+      }
+    }
+  }
+}
+
+void onCameraWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {                       
+  if (type == WS_EVT_CONNECT) cameraClientId = client->id();
+  else if (type == WS_EVT_DISCONNECT) cameraClientId = 0;
+}
+
+// Camera setup
+void setupCamera() {
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
-  config.pin_d0 = Y2_GPIO_NUM;   config.pin_d1 = Y3_GPIO_NUM;   config.pin_d2 = Y4_GPIO_NUM;
-  config.pin_d3 = Y5_GPIO_NUM;   config.pin_d4 = Y6_GPIO_NUM;   config.pin_d5 = Y7_GPIO_NUM;
-  config.pin_d6 = Y8_GPIO_NUM;   config.pin_d7 = Y9_GPIO_NUM;   config.pin_xclk = XCLK_GPIO_NUM;
-  config.pin_pclk = PCLK_GPIO_NUM; config.pin_vsync = VSYNC_GPIO_NUM; config.pin_href = HREF_GPIO_NUM;
-  config.pin_sccb_sda = SIOD_GPIO_NUM; config.pin_sccb_scl = SIOC_GPIO_NUM;
-  config.pin_pwdn = PWDN_GPIO_NUM; config.pin_reset = RESET_GPIO_NUM;
+  config.pin_d0 = Y2_GPIO_NUM;
+  config.pin_d1 = Y3_GPIO_NUM;
+  config.pin_d2 = Y4_GPIO_NUM;
+  config.pin_d3 = Y5_GPIO_NUM;
+  config.pin_d4 = Y6_GPIO_NUM;
+  config.pin_d5 = Y7_GPIO_NUM;
+  config.pin_d6 = Y8_GPIO_NUM;
+  config.pin_d7 = Y9_GPIO_NUM;
+  config.pin_xclk = XCLK_GPIO_NUM;
+  config.pin_pclk = PCLK_GPIO_NUM;
+  config.pin_vsync = VSYNC_GPIO_NUM;
+  config.pin_href = HREF_GPIO_NUM;
+  config.pin_sscb_sda = SIOD_GPIO_NUM;
+  config.pin_sscb_scl = SIOC_GPIO_NUM;
+  config.pin_pwdn = PWDN_GPIO_NUM;
+  config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
-  
-  // 🚨 Strict DRAM Overrides (PSRAM ရှောင်ကွင်းရန်)
-  config.frame_size = FRAMESIZE_QVGA;     // Safe lightweight resolution for DRAM
-  config.fb_location = CAMERA_FB_IN_DRAM;  // Force frame buffer allocation in internal memory
-  config.jpeg_quality = 14;               // Compress image size to fit DRAM
-  config.fb_count = 1;
+  config.frame_size = FRAMESIZE_QVGA;
+  config.jpeg_quality = 15;
+  config.fb_count = 2;
 
-  // Initialize camera
-  esp_err_t err = esp_camera_init(&config);
-  if (err != ESP_OK) {
-    Serial.printf("Camera initialization failed! Error: 0x%x\n", err);
-    return;
-  }
-  Serial.println("✅ Success: Camera successfully connected via Internal DRAM!");
+  esp_camera_init(&config);
+}
 
-  // 🚨 Creating Hotspot (Access Point Mode)
-  Serial.print("Launching Access Point: ");
-  Serial.println(ap_ssid);
-  
-  WiFi.softAP(ap_ssid, ap_password);
-  
-  Serial.println("Hotspot is active!");
-  Serial.print("Connect to Wi-Fi: ");
-  Serial.println(ap_ssid);
-  
-  // Launch Server
-  startCameraServer();
+void sendCameraPicture() {
+  if (cameraClientId == 0) return;
+  AsyncWebSocketClient *client = wsCamera.client(cameraClientId);
+  if (!client || client->queueIsFull()) return;
 
-  // Hotspot IP Default is 192.168.4.1
-  Serial.print("Camera Ready! Access: http://");
-  Serial.println(WiFi.softAPIP());
+  camera_fb_t *fb = esp_camera_fb_get();
+  if (!fb) return;
+
+  wsCamera.binary(cameraClientId, fb->buf, fb->len);
+  esp_camera_fb_return(fb);
+}
+
+void setUpPinModes() {
+  pinMode(MOTOR_IN1, OUTPUT);
+  pinMode(MOTOR_IN2, OUTPUT);
+  pinMode(MOTOR_IN3, OUTPUT);
+  pinMode(MOTOR_IN4, OUTPUT);
+  
+  pinMode(LIGHT_PIN, OUTPUT);    
+  digitalWrite(LIGHT_PIN, LOW);
+
+  ESP32PWM::allocateTimer(2);
+  cameraServo.setPeriodHertz(50);
+  cameraServo.attach(SERVO_PIN, 540, 2400);
+  cameraServo.write(90);
+
+  moveCar(STOP);
+}
+
+void setup(void) {
+  Serial.begin(115200);
+  setUpPinModes();
+
+  WiFi.softAP(ssid, password);
+
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send_P(200, "text/html", index_html);
+  });
+
+  wsCamera.onEvent(onCameraWebSocketEvent);
+  server.addHandler(&wsCamera);
+
+  wsCarInput.onEvent(onCarInputWebSocketEvent);
+  server.addHandler(&wsCarInput);
+
+  server.begin();
+  setupCamera();
 }
 
 void loop() {
-  delay(10000);
+  wsCamera.cleanupClients(); 
+  wsCarInput.cleanupClients(); 
+  sendCameraPicture(); 
+
+  if (millis() - lastCmdTime > CMD_TIMEOUT) {
+    moveCar(STOP);
+  }
 }
