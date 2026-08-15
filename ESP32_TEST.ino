@@ -1,10 +1,11 @@
-include "esp_camera.h"
+#include "esp_camera.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <ESP32Servo.h>
 
+// --- PIN DEFINITIONS ---
 #define MOTOR_IN1 13  // Right Motor Forward
 #define MOTOR_IN2 14  // Right Motor Backward
 #define MOTOR_IN3 15  // Left Motor Forward
@@ -37,7 +38,6 @@ include "esp_camera.h"
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-//wifi and password for esp32
 const char* ssid     = "pio";
 const char* password = "15092004";
 
@@ -52,7 +52,7 @@ Servo cameraServo;
 unsigned long lastCmdTime = 0;
 const unsigned long CMD_TIMEOUT = 600; // after 0.6 sec stop
 
-// ================= HTML, CSS, JS to store in program =================
+// ================= HTML, CSS, JS to store in PROGMAM =================
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
