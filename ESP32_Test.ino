@@ -13,7 +13,7 @@
 #define MOTOR_IN1 13  // Right Motor Forward
 #define MOTOR_IN2 14  // Right Motor Backward
 #define MOTOR_IN3 15  // Left Motor Forward
-#define MOTOR_IN4 16   // Left Motor Backward (Moved from GPIO 2 to GPIO 4)
+#define MOTOR_IN4 16   // Left Motor Backward (Moved from GPIO 4 to GPIO 16 and 2 used only for  boost  )
 
 #define LIGHT_PIN 4   // Flash LED Pin (Note: If using GPIO 4 for motor, change light pin or share safely)
 #define SERVO_PIN 12  // Servo Pin 
