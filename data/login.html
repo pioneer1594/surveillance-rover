@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart GuardX – Login</title>
+    <meta name="description" content="Secure login portal for Smart GuardX rover control system.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="auth-wrapper">
+        <!-- Logo / Brand -->
+        <div class="brand">
+            <div class="brand-icon">
+                <img src="images/logo26-withoutbg.png" alt="SmartGuardX Logo" class="brand-logo">
+            </div>
+            <div class="brand-text">
+                <span class="brand-name">SmartGuardX</span>
+                <span class="brand-sub">SECURE ROVER SYSTEM</span>
+            </div>
+        </div>
+
+        <div class="auth-card" id="loginCard">
+            <h1>SYSTEM LOGIN</h1>
+            <p class="auth-subtitle">Smart Rover Secure Authentication</p>
+
+            <div class="auth-badge">
+                <span class="auth-badge-dot"></span>
+                3-FACTOR AUTHENTICATION
+            </div>
+
+            <form id="loginForm">
+                <div class="input-group">
+                    <label class="input-label" for="username">👤 USERNAME</label>
+                    <input type="text" id="username" placeholder="Enter Username" autocomplete="username" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label" for="password">🔒 PASSWORD</label>
+                    <input type="password" id="password" placeholder="Enter Password" autocomplete="current-password" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label" for="carWifi">📡 CAR WI-FI PASSWORD</label>
+                    <input type="password" id="carWifi" placeholder="Enter Car's Wi-Fi Password" autocomplete="off" required>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-full" id="loginBtn">
+                    <span class="btn-icon">⚡</span> AUTHENTICATE
+                </button>
+            </form>
+
+            <div id="loginMessage" class="form-message"></div>
+
+            <div class="auth-divider"><span>OR</span></div>
+
+            <p class="auth-toggle-text">
+                Don't have an account?
+                <a href="register.html" id="showRegisterLink">Register here →</a>
+            </p>
+        </div>
+    </div>
+
+    <script src="auth.js"></script>
+</body>
+</html>

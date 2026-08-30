@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 
 # ── Import models from main.py ──────────────────────────────────────────────
 sys.path.insert(0, ".")
-from backend import Base, User, Car, DATABASE_URL
+from backend import Base, User, Car, DATABASE_URL, datetime
 
 # ── Your desired credentials ─────────────────────────────────────────────────
 # Change these before running!
@@ -31,7 +31,7 @@ def seed():
     print(f"[Seed] Connecting to: {DATABASE_URL}")
     engine = create_engine(DATABASE_URL)
 
-    # Create tables if they don't exist yet
+    # Create tables if they don't exist yet                                                                                                                                         
     Base.metadata.create_all(bind=engine)
     print("[Seed] Tables verified/created.")
 
@@ -46,9 +46,10 @@ def seed():
             print(f"[Seed] Existing cars: {[c.car_name for c in existing.cars]}")
             return
 
-        # Hash the password with bcrypt (auto-generates a salt)
+        # Hash the password with bcrypt (auto-generates a salt)                                                                                                                                                 
+
         hashed = bcrypt.hashpw(
-            DEFAULT_PASSWORD.encode("utf-8"),
+            DEFAULT_PASSWORD.encode("utf-8"),                                                                                                                   
             bcrypt.gensalt(rounds=12)
         ).decode("utf-8")
 
@@ -58,17 +59,27 @@ def seed():
             password_hash=hashed
         )
         db.add(user)
-        db.flush()  # Get the user.id without committing
+        db.flush()  # Get the user.id without committing                                                                        
 
         # Create the car linked to that user
-        car = Car(
+        car = Car(                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
             car_name=DEFAULT_CAR_NAME,
             wifi_password=DEFAULT_CAR_WIFI_PW,
             owner_id=user.id
         )
         db.add(car)
-        db.commit()
 
+        #Create a seesion for the car 
+        #session = Session(
+        #    user_id=user.id,
+        #   car_id=car.id,
+        #  login_time=datetime.utcnow(),
+        # status="active"
+        #    )
+
+        #db.add(session)
+        db.commit()
+        #db.refresh(session)
         print()
         print("=" * 50)
         print("  [Seed] SUCCESS — User and Car created!")

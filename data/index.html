@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Smart GuardX – Command Center</title>
+    <meta name="description" content="Smart GuardX rover live surveillance and telemetry control dashboard.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script>
+        (function() {
+            var saved = localStorage.getItem('sgx_theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', saved);
+        })();
+    </script>
+</head>
+<body>
+    <div class="dashboard-layout">
+        <!-- ===== TOP NAV ===== -->
+        <nav class="topnav">
+            <div class="topnav-brand">
+                <img src="images/logo26-withoutbg.png" alt="SmartGuardX Logo" class="brand-logo-sm">
+                <span>SmartGuardX</span>
+            </div>
+
+            <!-- Mobile Action Cluster (Disconnect Icon & Hamburger) -->
+            <div class="topnav-mobile-actions">
+                <button class="btn btn-danger mobile-logout-btn" onclick="logout()" title="Disconnect">
+                    <span>⏻</span>
+                </button>
+                <button class="nav-toggle-btn" id="navToggle" onclick="toggleMobileNav()" aria-label="Toggle navigation">
+                    ☰
+                </button>
+            </div>
+
+            <!-- Nav Links (Desktop & Mobile Dropdown) -->
+            <div class="topnav-links" id="topnavLinks">
+                <button class="btn btn-outline btn-sm theme-toggle-btn" id="themeToggleBtn" onclick="toggleTheme()" title="Change Theme (Dark / Light / Black & White)">
+                    <span id="themeToggleIcon">🌙</span> <span id="themeToggleText">Dark</span>
+                </button>
+                <a href="index.html" class="nav-link active">⚙️ Dashboard</a>
+                <a href="user_profile.html" class="nav-link">👤 Profile</a>
+                <button class="btn btn-danger btn-sm desktop-logout-btn" id="logoutBtn" onclick="logout()" title="Disconnect">
+                    <span class="logout-icon">⏻</span>
+                    <span class="logout-text">DISCONNECT</span>
+                </button>
+            </div>
+        </nav>
+
+        <!-- ===== DASHBOARD CONTENT ===== -->
+        <main class="dashboard-main" id="dashboardSection">
+            <div class="container">
+                <h2>SMART ROVER Panel</h2>
+                <p>Live Surveillance &amp; Telemetry Control</p>
+
+                <!-- Video Stream -->
+                <div id="video-container">
+                    <span id="camera-status">NO SIGNAL (Awaiting Hardware)</span>
+                    <img id="video-stream" alt="ESP32 Stream" src="" style="display:none;" />
+                </div>
+
+                <!-- D-Pad Controls -->
+                <div class="control-panel">
+                    <div></div>
+                    <button class="d-btn" onmousedown="sendCommand('forward')" onmouseup="sendCommand('stop')" ontouchstart="sendCommand('forward'); event.preventDefault();" ontouchend="sendCommand('stop'); event.preventDefault();">W</button>
+                    <div></div>
+                    <button class="d-btn" onmousedown="sendCommand('left')" onmouseup="sendCommand('stop')" ontouchstart="sendCommand('left'); event.preventDefault();" ontouchend="sendCommand('stop'); event.preventDefault();">A</button>
+                    <button class="d-btn btn-stop" onmousedown="sendCommand('stop')" ontouchstart="sendCommand('stop'); event.preventDefault();">STOP</button>
+                    <button class="d-btn" onmousedown="sendCommand('right')" onmouseup="sendCommand('stop')" ontouchstart="sendCommand('right'); event.preventDefault();" ontouchend="sendCommand('stop'); event.preventDefault();">D</button>
+                    <div></div>
+                    <button class="d-btn" onmousedown="sendCommand('backward')" onmouseup="sendCommand('stop')" ontouchstart="sendCommand('backward'); event.preventDefault();" ontouchend="sendCommand('stop'); event.preventDefault();">S</button>
+                    <div></div>
+                </div>
+
+                <!-- ===== VIDEO HISTORY ===== -->
+                <div class="video-history-panel">
+                    <div class="vh-header">
+                        <h3 id="vh-title">📼 VIDEO HISTORY</h3>
+                        <button class="vh-refresh-btn" id="refreshVideosBtn" onclick="loadVideoHistory()" title="Refresh list">
+                            <span id="refreshIcon">↺</span> REFRESH
+                        </button>
+                    </div>
+
+                    <!-- Playback Player -->
+                    <div class="vh-player-container">
+                        <video id="historyPlayer" controls preload="metadata">
+                            <source id="historyPlayerSource" src="" type="video/webm">
+                            Your browser does not support the video tag.
+                        </video>
+                        <div id="vh-player-placeholder">
+                            <span>▶</span>
+                            <p>Select a recording below to play</p>
+                        </div>
+                    </div>
+
+                    <!-- Now Playing Label -->
+                    <div id="vh-now-playing" class="vh-now-playing" style="display:none;">
+                        <span class="vh-live-dot"></span>
+                        <span id="vh-now-playing-name"></span>
+                    </div>
+
+                    <!-- Video List -->
+                    <div class="vh-list-wrapper">
+                        <div id="videoList" class="vh-list">
+                            <div class="vh-empty-state" id="vh-empty">
+                                <span>🎞️</span>
+                                <p>No recordings found. Start recording to see files here.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- ===== JAVASCRIPT ===== -->
+    <script src="script.js"></script>
+</body>
+</html>
