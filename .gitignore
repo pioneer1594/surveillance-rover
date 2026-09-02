@@ -1,5 +1,5 @@
-.log
-venv
-data
-__pycahche__
+.log/
+venv/
+data/
+__pycahche__/
 ESP32_Tes.ino
